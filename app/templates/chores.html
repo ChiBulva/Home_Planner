@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <div class="section-title">
+    <h1>Chores</h1>
+    <div class="section-actions">
+      <a class="button-link" href="/tasks/new?type=chore">New Chore</a>
+      <form method="post" action="/chores/reset" hx-post="/chores/reset" hx-target="#chore-list" hx-swap="outerHTML">
+        <button type="submit" class="secondary">Reset daily chores</button>
+      </form>
+    </div>
+  </div>
+  <div id="chore-list" hx-get="/partials/chores" hx-trigger="load, tasks-changed from:body"></div>
+</section>
+{% endblock %}

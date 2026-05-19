@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block main_class %}settings-shell{% endblock %}
+{% block content %}
+<section class="settings-splash">
+  <article class="settings-card">
+    <div class="section-title">
+      <h1>Settings</h1>
+    </div>
+    {% include "_settings_form.html" %}
+  </article>
+</section>
+{% endblock %}

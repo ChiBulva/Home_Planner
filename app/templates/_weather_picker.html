@@ -1,0 +1,13 @@
+{% if error %}<p class="empty">{{ error }}</p>{% endif %}
+{% if locations %}
+  <div class="location-results">
+    {% for location in locations %}
+      <form method="post" action="/weather/location?date={{ selected_date_value }}" hx-post="/weather/location?date={{ selected_date_value }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
+        <input type="hidden" name="label" value="{{ location.label }}">
+        <input type="hidden" name="latitude" value="{{ location.latitude }}">
+        <input type="hidden" name="longitude" value="{{ location.longitude }}">
+        <button type="submit" class="location-option">{{ location.label }}</button>
+      </form>
+    {% endfor %}
+  </div>
+{% endif %}

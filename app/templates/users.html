@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="split">
+  <div class="panel stack">
+    <h1>Users</h1>
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    <ul class="user-list">
+      {% for person in users %}
+        <li><strong>{{ person.username }}</strong><span>{{ person.role }}</span></li>
+      {% endfor %}
+    </ul>
+  </div>
+  <div class="panel stack">
+    <h1>Add User</h1>
+    {% if not pending_secret %}
+      <form method="post" action="/users/start" class="stack">
+        <label>Username <input name="username" required></label>
+        <button type="submit">Create authenticator code</button>
+      </form>
+    {% else %}
+      <h2>{{ pending_username }}</h2>
+      <div class="qr-wrap">
+        <img src="{{ qr }}" alt="Authenticator QR code">
+        <p class="manual-code">{{ uri }}</p>
+      </div>
+      <form method="post" action="/users/confirm" class="stack">
+        <label>6-digit code <input name="code" inputmode="numeric" autocomplete="one-time-code" required></label>
+        <button type="submit">Add user</button>
+      </form>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

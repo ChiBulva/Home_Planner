@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <div class="section-title">
+    <h1>Projects</h1>
+    <a class="button-link" href="/tasks/new?type=project">New Project Task</a>
+  </div>
+  <div class="project-grid">
+    {% for project in projects %}
+      <article class="project-card" style="--project-color: {{ project_color(project.name) }}">
+        <div class="project-head">
+          <div>
+            <strong>{{ project.name }}</strong>
+            <span>{{ project.complete }}/{{ project.total }}</span>
+          </div>
+          <div class="project-head-actions">
+            <form method="post" action="/projects/{{ project_quote(project.name) }}/color" class="color-form">
+              <input name="color" type="color" value="{{ project_color(project.name) }}">
+              <button type="submit" class="secondary">Set color</button>
+            </form>
+            <form method="post" action="/projects/{{ project_quote(project.name) }}/due-date" class="due-date-form">
+              <input name="due_at" type="datetime-local" required>
+              <button type="submit" class="secondary">Set due date</button>
+            </form>
+          </div>
+        </div>
+        <div class="progress"><span style="width: {{ project.percent }}%"></span></div>
+        <form method="post" action="/projects/{{ project_quote(project.name) }}/toggle" class="project-active-form">
+          <button type="submit" class="{{ 'secondary' if project.name in active_projects else '' }}">
+            {{ "Active on dashboard" if project.name in active_projects else "Make active" }}
+          </button>
+        </form>
+        <div class="project-task-list">
+          {% for task in project.tasks %}
+            <article class="task-card {{ task.status or 'incomplete' }}" style="--task-color: {{ task.color }}">
+              <form method="post" action="/projects/tasks/{{ task.id }}/toggle">
+                <button class="check" title="Toggle complete">{{ "✓" if task.status == "complete" else "" }}</button>
+              </form>
+              <div>
+                <h3>{% if task.project_order > 0 %}{{ task.project_order }}. {% endif %}{{ task.title }}</h3>
+                <div class="meta">
+                  <span>{{ task.status or "incomplete" }}</span>
+                  <span>{{ "No order" if task.project_order == 0 else "Order " ~ task.project_order }}</span>
+                  {% if task.due_at %}<span>{{ task.due_at | short_date }}</span>{% endif %}
+                </div>
+              </div>
+              <div class="task-actions">
+                <form method="post" action="/projects/tasks/{{ task.id }}/activate">
+                  <button type="submit" class="{{ 'secondary' if task.id in active_task_ids else '' }}">
+                    {{ "Active today" if task.id in active_task_ids else "Make active today" }}
+                  </button>
+                </form>
+                {% if task.project_order > 0 %}
+                  <form method="post" action="/projects/tasks/{{ task.id }}/move">
+                    <input type="hidden" name="direction" value="up">
+                    <button class="secondary" type="submit">Up</button>
+                  </form>
+                  <form method="post" action="/projects/tasks/{{ task.id }}/move">
+                    <input type="hidden" name="direction" value="down">
+                    <button class="secondary" type="submit">Down</button>
+                  </form>
+                {% endif %}
+                <a class="button-link secondary-link" href="/tasks/{{ task.id }}/edit">Edit</a>
+                <form method="post" action="/projects/tasks/{{ task.id }}/delete">
+                  <button class="danger" type="submit">Remove</button>
+                </form>
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      </article>
+    {% else %}
+      <p class="empty">No project tasks yet.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="editor-layout">
+  <form method="post" action="{{ action }}" class="panel stack task-editor">
+    <div class="section-title">
+      <h1>{{ "New Task" if mode == "new" else "Edit Task" }}</h1>
+      <a class="button-link secondary-link" href="/app">Back to tasks</a>
+    </div>
+
+    <label>Title <input name="title" value="{{ task.title if task else '' }}" required autofocus></label>
+    <label>Description <textarea name="description" rows="4">{{ task.description if task else '' }}</textarea></label>
+
+    <div class="grid-2">
+      <label>Type
+        <select name="type" data-task-type>
+          {% set current_type = task.type if task else default_type %}
+          <option value="chore" {% if current_type == "chore" %}selected{% endif %}>Chore</option>
+          <option value="task" {% if current_type == "task" %}selected{% endif %}>Task</option>
+          <option value="project" {% if current_type == "project" %}selected{% endif %}>Project task</option>
+        </select>
+      </label>
+      {% if mode == "edit" %}
+        <label>Status
+          {% set current_status = task.status if task else "incomplete" %}
+          <select name="status">
+            <option value="incomplete" {% if current_status != "complete" %}selected{% endif %}>Incomplete</option>
+            <option value="complete" {% if current_status == "complete" %}selected{% endif %}>Complete</option>
+          </select>
+        </label>
+      {% else %}
+        <input type="hidden" name="status" value="incomplete">
+      {% endif %}
+    </div>
+
+    <div class="grid-2">
+      <label>Priority
+        {% set current_priority = task.priority if task else 2 %}
+        <select name="priority">
+          <option value="3" {% if current_priority == 3 %}selected{% endif %}>High</option>
+          <option value="2" {% if current_priority == 2 %}selected{% endif %}>Normal</option>
+          <option value="1" {% if current_priority == 1 %}selected{% endif %}>Low</option>
+        </select>
+      </label>
+      <label>Color <input name="color" type="color" value="{{ task.color if task else '#147d74' }}"></label>
+    </div>
+
+    <div class="grid-2">
+      <label>Assigned to
+        <select name="assigned_to">
+          <option value="">Shared</option>
+          {% for person in users %}
+            <option value="{{ person.id }}" {% if task and task.assigned_to == person.id %}selected{% endif %}>{{ person.username }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+
+    <div class="stack" data-editor-section="chore">
+      {% set current_reset = task.reset_frequency if task else "daily" %}
+      {% set selected_weekdays = task.reset_value | chore_weekdays if task else [] %}
+      <label class="inline-check">
+        <input name="chore_weekdays_enabled" type="checkbox" data-weekday-toggle value="1" {% if current_reset == "weekdays" %}checked{% endif %}>
+        Specific weekdays
+      </label>
+      <label data-daily-reset-time>Reset time <input name="chore_reset_time" type="time" value="{{ task.reset_value | chore_reset_time if task else '04:00' }}"></label>
+      <div class="weekday-picker" data-weekday-picker>
+        <label><input type="checkbox" name="chore_weekdays" value="0" {% if 0 in selected_weekdays %}checked{% endif %}> Mon</label>
+        <label><input type="checkbox" name="chore_weekdays" value="1" {% if 1 in selected_weekdays %}checked{% endif %}> Tue</label>
+        <label><input type="checkbox" name="chore_weekdays" value="2" {% if 2 in selected_weekdays %}checked{% endif %}> Wed</label>
+        <label><input type="checkbox" name="chore_weekdays" value="3" {% if 3 in selected_weekdays %}checked{% endif %}> Thu</label>
+        <label><input type="checkbox" name="chore_weekdays" value="4" {% if 4 in selected_weekdays %}checked{% endif %}> Fri</label>
+        <label><input type="checkbox" name="chore_weekdays" value="5" {% if 5 in selected_weekdays %}checked{% endif %}> Sat</label>
+        <label><input type="checkbox" name="chore_weekdays" value="6" {% if 6 in selected_weekdays %}checked{% endif %}> Sun</label>
+      </div>
+    </div>
+
+    <div class="grid-2" data-editor-section="project">
+      <label>Project
+        <select name="project_name">
+          <option value="">No project</option>
+          {% for project in projects %}
+            <option value="{{ project }}" {% if selected_project == project %}selected{% endif %}>{{ project }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Project order
+        <select name="project_order">
+          <option value="0" {% if suggested_order == 0 %}selected{% endif %}>No order</option>
+          {% for order in range(1, 31) %}
+            <option value="{{ order }}" {% if suggested_order == order %}selected{% endif %} {% if order in used_orders %}disabled{% endif %}>{{ order }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+
+    <label data-editor-section="project">New project name <input name="new_project_name" placeholder="Overrides selected project when filled"></label>
+    <label data-editor-section="task">Due date <input name="due_at" type="datetime-local" value="{{ task.due_at | datetime_local if task else '' }}"></label>
+    <label data-editor-section="project">Scheduled date <input name="due_at" type="datetime-local" value="{{ task.due_at | datetime_local if task else '' }}"></label>
+
+    <div class="form-actions">
+      <a class="button-link secondary-link" href="/app">Cancel</a>
+      <button type="submit">{{ submit_label }}</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

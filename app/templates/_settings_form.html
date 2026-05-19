@@ -1,0 +1,33 @@
+<form method="post" action="/settings" class="stack">
+  <input type="hidden" name="return_to" value="{{ current_full_path }}">
+  <label>
+    Theme
+    <select name="theme">
+      <option value="day" {% if ui_theme == "day" %}selected{% endif %}>Day</option>
+      <option value="night" {% if ui_theme == "night" %}selected{% endif %}>Night</option>
+    </select>
+  </label>
+  <label>
+    Dashboard Column Size
+    <select name="col_mode">
+      <option value="narrow_chores" {% if ui_col_mode == "narrow_chores" %}selected{% endif %}>Narrow chores</option>
+      <option value="normal" {% if ui_col_mode == "normal" %}selected{% endif %}>Normal</option>
+      <option value="balanced" {% if ui_col_mode == "balanced" %}selected{% endif %}>Balanced</option>
+    </select>
+  </label>
+  <label>
+    Row Density
+    <select name="row_mode">
+      <option value="compact" {% if ui_row_mode == "compact" %}selected{% endif %}>Compact</option>
+      <option value="normal" {% if ui_row_mode == "normal" %}selected{% endif %}>Normal</option>
+      <option value="comfortable" {% if ui_row_mode == "comfortable" %}selected{% endif %}>Comfortable</option>
+    </select>
+  </label>
+  <label>
+    Browser Session Highlight
+    <input name="session_highlight" type="color" value="{{ ui_session_highlight }}">
+  </label>
+  <div class="form-actions">
+    <button type="submit">Save Settings</button>
+  </div>
+</form>

@@ -1,0 +1,31 @@
+<div class="weather-content">
+  <div class="dash-heading">
+    <h2>Weather</h2>
+    {% if weather.configured %}<span>{{ weather.label }}</span>{% endif %}
+  </div>
+
+  {% if weather.configured and weather.ok %}
+    <div class="weather-now">
+      <strong>{{ weather.temperature }}&deg;</strong>
+      <div>
+        <span>{{ weather.condition }}</span>
+        <small>Feels {{ weather.feels_like }}&deg;{% if weather.wind is not none %} &middot; Wind {{ weather.wind }} mph{% endif %}</small>
+      </div>
+    </div>
+    <div class="weather-detail">
+      <span>High {{ weather.high }}&deg;</span>
+      <span>Low {{ weather.low }}&deg;</span>
+      {% if weather.rain is not none %}<span>Rain {{ weather.rain }}%</span>{% endif %}
+    </div>
+  {% elif weather.configured %}
+    <p class="empty">Weather is unavailable right now.</p>
+  {% else %}
+    <p class="empty">Choose a local weather location.</p>
+  {% endif %}
+
+  <form class="weather-search" method="post" action="/weather/search" hx-post="/weather/search" hx-target="#weather-picker" hx-swap="innerHTML">
+    <label>Location <input name="query" placeholder="City or ZIP"></label>
+    <button type="submit" class="secondary">Search</button>
+  </form>
+  <div id="weather-picker"></div>
+</div>

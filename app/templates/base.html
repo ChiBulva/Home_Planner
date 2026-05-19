@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ app_name }}</title>
+    <link rel="stylesheet" href="/static/GrayPry_Globals.css">
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="/static/htmx.min.js"></script>
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body data-theme="{{ ui_theme }}"
+        style="--row-scale: {{ ui_row_scale }}; --dashboard-col-chores: {{ ui_chores_col }}; --dashboard-col-main: {{ ui_main_col }}; --session-highlight: {{ ui_session_highlight }};">
+    {% if user is defined %}
+      <header class="topbar">
+        <a class="brand" href="/dashboard">{{ app_name }}</a>
+        <nav>
+          <a href="/dashboard">Dashboard</a>
+          <a href="/app">Tasks</a>
+          <a href="/chores">Chores</a>
+          <a href="/projects">Projects</a>
+          <button class="settings-wheel" type="button" data-settings-open aria-label="Settings" title="Settings">⚙</button>
+          <a class="nav-action" href="/tasks/new">New Task</a>
+          {% if user.role == "admin" %}<a href="/users">Users</a>{% endif %}
+          <form method="post" action="/logout"><button type="submit">Logout</button></form>
+        </nav>
+      </header>
+      <div class="settings-modal" data-settings-modal hidden>
+        <div class="settings-backdrop" data-settings-close></div>
+        <article class="settings-card settings-modal-card">
+          <div class="section-title">
+            <h1>Settings</h1>
+            <button type="button" class="secondary" data-settings-close>Close</button>
+          </div>
+          {% include "_settings_form.html" %}
+        </article>
+      </div>
+    {% endif %}
+    <main class="{% block main_class %}shell{% endblock %}">
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>

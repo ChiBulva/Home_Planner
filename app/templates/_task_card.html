@@ -1,0 +1,33 @@
+<article id="task-{{ task.id }}" class="task-card {{ task.status or 'incomplete' }}" style="--task-color: {{ task.color }}">
+  <form method="post" action="/tasks/{{ task.id }}/toggle" hx-post="/tasks/{{ task.id }}/toggle" hx-target="{{ list_target | default('#task-list') }}" hx-swap="outerHTML">
+    <button class="check" title="Toggle complete">{{ "✓" if task.status == "complete" else "" }}</button>
+  </form>
+  <div>
+    <h3>{{ task.title }}</h3>
+    {% if task.description %}<p>{{ task.description }}</p>{% endif %}
+    <div class="meta">
+      <span>{{ task.type or "chore" }}</span>
+      <span>{{ "shared" if not task.assignee else task.assignee.username }}</span>
+      {% if task.project_name %}<span>{{ task.project_name }} #{{ task.project_order }}</span>{% endif %}
+      <span>{{ task.reset_frequency or "daily" }}</span>
+      {% if task.due_at %}<span>{{ task.due_at | short_date }}</span>{% endif %}
+    </div>
+  </div>
+  <div class="task-actions">
+    {% if (task.type or "chore") != "chore" %}
+      {% if task.id in (active_task_ids | default([])) %}
+        <form method="post" action="/tasks/{{ task.id }}/deactivate" hx-post="/tasks/{{ task.id }}/deactivate" hx-target="{{ list_target | default('#task-list') }}" hx-swap="outerHTML">
+          <button class="check arrow-toggle deactivate" title="Deactivate for today">&rarr;</button>
+        </form>
+      {% else %}
+        <form method="post" action="/tasks/{{ task.id }}/activate" hx-post="/tasks/{{ task.id }}/activate" hx-target="{{ list_target | default('#task-list') }}" hx-swap="outerHTML">
+          <button class="check arrow-toggle activate" title="Activate for today">&larr;</button>
+        </form>
+      {% endif %}
+    {% endif %}
+    <a class="button-link secondary-link" href="/tasks/{{ task.id }}/edit">Edit</a>
+    <form method="post" action="/tasks/{{ task.id }}/delete" hx-post="/tasks/{{ task.id }}/delete" hx-target="{{ list_target | default('#task-list') }}" hx-swap="outerHTML">
+      <button class="danger" title="Delete task">Delete</button>
+    </form>
+  </div>
+</article>

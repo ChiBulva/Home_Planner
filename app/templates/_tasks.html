@@ -1,0 +1,35 @@
+<div id="task-list" class="task-browser">
+  {% set list_target = '#task-list' %}
+  <section class="browser-group">
+    <h2>Tasks Today</h2>
+    <div class="task-list">
+      {% for task in tasks_today %}
+        {% include "_task_card.html" %}
+      {% else %}
+        <p class="empty">No standalone tasks due today.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="browser-group">
+    <h2>Other Tasks</h2>
+    <div class="task-list">
+      {% for task in other_tasks %}
+        {% include "_task_card.html" %}
+      {% else %}
+        <p class="empty">No other open tasks.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="browser-group">
+    <h2>Completed</h2>
+    <div class="task-list">
+      {% for task in completed_tasks %}
+        {% include "_task_card.html" %}
+      {% else %}
+        <p class="empty">Nothing completed yet.</p>
+      {% endfor %}
+    </div>
+  </section>
+</div>

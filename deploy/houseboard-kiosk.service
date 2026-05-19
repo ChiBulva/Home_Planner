@@ -1,0 +1,14 @@
+[Unit]
+Description=HouseBoard Chromium kiosk
+After=graphical.target houseboard.service
+Wants=houseboard.service
+
+[Service]
+Type=simple
+Environment=DISPLAY=:0
+ExecStart=/usr/bin/chromium-browser --kiosk --noerrdialogs --disable-infobars http://localhost:8000/dashboard
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=graphical.target

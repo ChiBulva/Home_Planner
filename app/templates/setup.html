@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="auth-panel">
+  <h1>Set Up HouseBoard</h1>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  {% if not secret %}
+    <form method="post" action="/setup/start" class="stack">
+      <label>Admin username <input name="username" value="{{ username }}" required autofocus></label>
+      <button type="submit">Create authenticator code</button>
+    </form>
+  {% else %}
+    <div class="qr-wrap">
+      <img src="{{ qr }}" alt="Authenticator QR code">
+      <p class="manual-code">{{ uri }}</p>
+    </div>
+    <form method="post" action="/setup/confirm" class="stack">
+      <label>6-digit code <input name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus></label>
+      <button type="submit">Finish setup</button>
+    </form>
+  {% endif %}
+</section>
+{% endblock %}

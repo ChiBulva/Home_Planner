@@ -1,0 +1,15 @@
+[Unit]
+Description=HouseBoard household dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/houseboard
+Environment=HOUSEBOARD_SECRET_KEY=change-me
+ExecStart=/opt/houseboard/.venv/bin/python run.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

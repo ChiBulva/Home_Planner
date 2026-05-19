@@ -1,0 +1,13 @@
+<div id="chore-list" class="task-browser">
+  {% set list_target = '#chore-list' %}
+  <section class="browser-group">
+    <h2>Daily Chores</h2>
+    <div class="task-list">
+      {% for task in daily_chores %}
+        {% include "_task_card.html" %}
+      {% else %}
+        <p class="empty">No daily chores.</p>
+      {% endfor %}
+    </div>
+  </section>
+</div>

@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <div class="section-title">
+    <h1>Tasks</h1>
+    <div class="section-actions">
+      <a class="button-link" href="/tasks/new?type=task">New Task</a>
+    </div>
+  </div>
+  <div id="task-list" hx-get="/partials/tasks" hx-trigger="load, tasks-changed from:body"></div>
+</section>
+{% endblock %}

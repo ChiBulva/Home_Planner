@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block main_class %}dashboard-shell{% endblock %}
+{% block content %}
+<section id="dashboard-panel" hx-get="/partials/dashboard?date={{ selected_date }}" hx-trigger="load, tasks-changed from:body">
+</section>
+{% endblock %}
