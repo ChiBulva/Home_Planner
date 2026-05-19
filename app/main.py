@@ -9,7 +9,7 @@ from fastapi import Depends, FastAPI, Form, Request, WebSocket, WebSocketDisconn
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -197,6 +197,69 @@ def project_names(db: Session) -> list[str]:
     return list(names)
 
 
+def archive_tasks(
+    db: Session,
+    *,
+    tab: str = "all",
+    query: str = "",
+) -> list[Task]:
+    normalized_tab = tab if tab in {"all", "tasks", "projects"} else "all"
+    all_non_chore = db.scalars(select(Task).where(Task.type != "chore")).all()
+    project_rows = [task for task in all_non_chore if (task.project_name or "").strip()]
+    project_completion: dict[str, bool] = {}
+    for name in {task.project_name for task in project_rows if task.project_name}:
+        members = [task for task in project_rows if task.project_name == name]
+        project_completion[name] = bool(members) and all(task.status == "complete" for task in members)
+
+    def in_archive(task: Task) -> bool:
+        if task.status != "complete":
+            return False
+        name = (task.project_name or "").strip()
+        if not name:
+            return normalized_tab in {"all", "tasks"}
+        if not project_completion.get(name, False):
+            return False
+        return normalized_tab in {"all", "projects"}
+
+    tasks = sorted([task for task in all_non_chore if in_archive(task)], key=lambda task: task.updated_at, reverse=True)
+    term = query.strip().lower()
+    if not term:
+        return tasks
+    filtered: list[Task] = []
+    for task in tasks:
+        haystack = " ".join(
+            [
+                (task.title or ""),
+                (task.description or ""),
+                (task.project_name or ""),
+            ]
+        ).lower()
+        if term in haystack:
+            filtered.append(task)
+    return filtered
+
+
+def archive_project_groups(tasks: list[Task]) -> list[dict]:
+    grouped: dict[str, list[Task]] = {}
+    for task in tasks:
+        name = (task.project_name or "").strip()
+        if not name:
+            continue
+        grouped.setdefault(name, []).append(task)
+    groups: list[dict] = []
+    for name in sorted(grouped):
+        items = sorted(grouped[name], key=lambda task: task.updated_at, reverse=True)
+        groups.append(
+            {
+                "name": name,
+                "tasks": items,
+                "count": len(items),
+                "last_completed_at": items[0].updated_at if items else None,
+            }
+        )
+    return groups
+
+
 def parse_active_projects(value: str) -> set[str]:
     return {name for name in value.split("\n") if name}
 
@@ -298,8 +361,11 @@ def dashboard_groups(
     inactive_project_task_ids: set[int] | None = None,
     show_up_next_completed: bool = False,
     show_due_next_completed: bool = False,
+    chore_completed_ids_for_date: set[int] | None = None,
 ) -> dict:
     def is_complete(task: Task) -> bool:
+        if (task.type or "chore") == "chore" and chore_completed_ids_for_date is not None:
+            return task.id in chore_completed_ids_for_date
         return (task.status or "").strip().lower() == "complete"
 
     inactive_project_task_ids = inactive_project_task_ids or set()
@@ -327,6 +393,7 @@ def dashboard_groups(
         for task in tasks
         if chore_visible_on(task, selected_date)
     ]
+    daily_chores_with_state = [{"task": task, "is_complete": is_complete(task)} for task in daily_chores]
     tasks_today = [
         task
         for task in open_tasks
@@ -486,7 +553,8 @@ def dashboard_groups(
         "open_tasks": open_tasks,
         "done_tasks": done_tasks,
         "daily_chores": daily_chores,
-        "daily_chores_open": [task for task in daily_chores if (task.status or "incomplete") != "complete"],
+        "daily_chores_with_state": daily_chores_with_state,
+        "daily_chores_open": [task for task in daily_chores if not is_complete(task)],
         "tasks_today": tasks_today,
         "standalone_today": standalone_today,
         "project_today_groups": project_today_groups,
@@ -651,6 +719,11 @@ def next_project_order(db: Session, project_name: str) -> int:
 
 def render_dashboard_panel(request: Request, db: Session, user: User, selected: date) -> HTMLResponse:
     tasks = task_query(db, user)
+    chore_completed_rows = db.scalars(
+        select(TaskHistory).where(func.date(TaskHistory.completed_at) == selected.isoformat())
+    ).all()
+    chore_ids = {task.id for task in tasks if (task.type or "chore") == "chore"}
+    chore_completed_ids_for_date = {row.task_id for row in chore_completed_rows if row.task_id in chore_ids}
     active_projects = active_project_names(db)
     active_task_ids = active_task_ids_for_date(db, selected)
     show_up_next_completed = True
@@ -664,15 +737,31 @@ def render_dashboard_panel(request: Request, db: Session, user: User, selected: 
         inactive_project_task_ids=inactive_project_task_ids_for_date(db, selected),
         show_up_next_completed=show_up_next_completed,
         show_due_next_completed=show_due_next_completed,
+        chore_completed_ids_for_date=chore_completed_ids_for_date,
     )
-    completed_today = [
+    tasks_by_id = {task.id: task for task in tasks}
+    completed_today: list[dict] = []
+    seen_ids: set[int] = set()
+    for row in sorted(chore_completed_rows, key=lambda row: row.completed_at, reverse=True):
+        task = tasks_by_id.get(row.task_id)
+        if not task or (task.type or "chore") != "chore" or row.task_id in seen_ids:
+            continue
+        seen_ids.add(row.task_id)
+        completed_today.append({"completed_at": row.completed_at, "task": task})
+    completed_today.extend(
         {"completed_at": task.updated_at, "task": task}
         for task in sorted(
-            [task for task in tasks if task.status == "complete" and task.completed_date == selected],
+            [
+                task
+                for task in tasks
+                if (task.type or "chore") != "chore"
+                and task.status == "complete"
+                and task.completed_date == selected
+            ],
             key=lambda task: task.updated_at,
             reverse=True,
         )
-    ]
+    )
     weather = weather_context(db)
     today = local_today()
     day_metrics = {}
@@ -686,6 +775,15 @@ def render_dashboard_panel(request: Request, db: Session, user: User, selected: 
             inactive_project_task_ids=inactive_project_task_ids_for_date(db, day_value),
             show_up_next_completed=True,
             show_due_next_completed=True,
+            chore_completed_ids_for_date={
+                task_id
+                for task_id in db.scalars(
+                    select(TaskHistory.task_id).where(
+                        func.date(TaskHistory.completed_at) == day_value.isoformat()
+                    )
+                ).all()
+                if task_id in chore_ids
+            },
         )
         project_count = len({t.project_name for t in metric_groups["tasks_today"] if t.project_name})
         day_metrics[day["value"]] = {
@@ -1001,11 +1099,37 @@ def projects_page(
         "projects.html",
         {
             "user": user,
-            "projects": groups["projects"],
+            "projects": [project for project in groups["projects"] if project["complete"] < project["total"]],
             "active_projects": active_projects,
             "active_task_ids": active_task_ids,
             "project_quote": project_quote,
             "project_color": lambda name: project_color(db, name),
+        },
+    )
+
+
+@app.get("/archive", response_class=HTMLResponse)
+def archive_page(
+    request: Request,
+    tab: str = "all",
+    q: str = "",
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    current_tab = tab if tab in {"all", "tasks", "projects"} else "all"
+    items = archive_tasks(db, tab=current_tab, query=q)
+    project_groups = archive_project_groups(items) if current_tab == "projects" else []
+    return render(
+        request,
+        "archive.html",
+        {
+            "user": user,
+            "tab": current_tab,
+            "q": q,
+            "items": items,
+            "project_groups": project_groups,
+            "project_color": lambda name: project_color(db, name),
+            "project_quote": project_quote,
         },
     )
 
@@ -1087,6 +1211,7 @@ async def toggle_project_task_active_today(
 @app.post("/projects/tasks/{task_id}/toggle")
 async def toggle_project_task(
     task_id: int,
+    return_to: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1097,17 +1222,19 @@ async def toggle_project_task(
         task.updated_at = now
         if task.status == "complete":
             task.completed_date = local_today()
-            db.add(TaskHistory(task_id=task.id, completed_by=user.id, completed_at=now))
         else:
             task.completed_date = None
         db.commit()
         await manager.broadcast("tasks_changed")
+    if return_to and return_to.startswith("/"):
+        return redirect(return_to)
     return redirect("/projects")
 
 
 @app.post("/projects/tasks/{task_id}/delete")
 async def delete_project_task(
     task_id: int,
+    return_to: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1116,6 +1243,8 @@ async def delete_project_task(
         db.delete(task)
         db.commit()
         await manager.broadcast("tasks_changed")
+    if return_to and return_to.startswith("/"):
+        return redirect(return_to)
     return redirect("/projects")
 
 
@@ -1183,13 +1312,48 @@ async def dashboard_toggle_task(
         return render_dashboard_panel(request, db, user, selected)
     if task:
         now = utcnow()
-        task.status = "incomplete" if task.status == "complete" else "complete"
-        task.updated_at = now
-        if task.status == "complete":
-            task.completed_date = selected
-            db.add(TaskHistory(task_id=task.id, completed_by=user.id, completed_at=now))
+        active_task_ids = active_task_ids_for_date(db, selected)
+        inactive_project_task_ids = inactive_project_task_ids_for_date(db, selected)
+        if (task.type or "chore") == "chore":
+            day_has_completion = db.scalar(
+                select(TaskHistory.id).where(
+                    TaskHistory.task_id == task.id,
+                    func.date(TaskHistory.completed_at) == selected.isoformat(),
+                )
+            )
+            if day_has_completion:
+                db.execute(
+                    delete(TaskHistory).where(
+                        TaskHistory.task_id == task.id,
+                        func.date(TaskHistory.completed_at) == selected.isoformat(),
+                    )
+                )
+                if selected == local_today():
+                    task.status = "incomplete"
+                    task.completed_date = None
+            else:
+                completed_at = datetime.combine(selected, datetime.now().time())
+                db.add(TaskHistory(task_id=task.id, completed_by=user.id, completed_at=completed_at))
+                if selected == local_today():
+                    task.status = "complete"
+                    task.completed_date = selected
         else:
+            task.status = "incomplete" if task.status == "complete" else "complete"
+            if task.status == "complete":
+                task.completed_date = selected
+                if task_id in active_task_ids:
+                    active_task_ids.remove(task_id)
+                if task_id in inactive_project_task_ids:
+                    inactive_project_task_ids.remove(task_id)
+            else:
+                task.completed_date = None
+        if (task.type or "chore") != "chore" and task.status != "complete":
             task.completed_date = None
+        if (task.type or "chore") == "chore" and selected == local_today() and task.status != "complete":
+            task.completed_date = None
+        task.updated_at = now
+        save_active_task_ids_for_date(db, selected, active_task_ids)
+        save_inactive_project_task_ids_for_date(db, selected, inactive_project_task_ids)
         db.commit()
         await manager.broadcast("tasks_changed")
     return render_dashboard_panel(request, db, user, selected)
@@ -1292,13 +1456,14 @@ async def dashboard_chore_reset(
     if parse_dashboard_date(date) > local_today():
         return render_dashboard_panel(request, db, user, parse_dashboard_date(date))
     now = utcnow()
+    reset_now = datetime.now()
     chores = db.scalars(
         select(Task).where(Task.type == "chore", Task.reset_frequency == "daily")
     ).all()
     for chore in chores:
         chore.status = "incomplete"
         chore.completed_date = None
-        chore.next_reset_at = next_reset_time(chore.reset_frequency, chore.reset_value, now=now)
+        chore.next_reset_at = next_reset_time(chore.reset_frequency, chore.reset_value, now=reset_now)
         chore.updated_at = now
     db.commit()
     await manager.broadcast("tasks_changed")
@@ -1370,6 +1535,7 @@ async def create_task(
     db: Session = Depends(get_db),
 ):
     now = utcnow()
+    reset_now = datetime.now()
     fields = normalized_task_fields(
         type,
         project_name,
@@ -1401,7 +1567,9 @@ async def create_task(
         reset_frequency=fields["reset_frequency"],
         reset_value=fields["reset_value"],
         due_at=fields["due_at"],
-        next_reset_at=next_reset_time(fields["reset_frequency"], fields["reset_value"], now=now),
+        next_reset_at=next_reset_time(
+            fields["reset_frequency"], fields["reset_value"], now=reset_now
+        ),
         created_at=now,
         updated_at=now,
     )
@@ -1476,6 +1644,7 @@ async def update_task(
     task = db.get(Task, task_id)
     if task:
         now = utcnow()
+        reset_now = datetime.now()
         fields = normalized_task_fields(
             type,
             project_name,
@@ -1512,7 +1681,9 @@ async def update_task(
         task.reset_frequency = fields["reset_frequency"]
         task.reset_value = fields["reset_value"]
         task.due_at = fields["due_at"]
-        task.next_reset_at = next_reset_time(fields["reset_frequency"], fields["reset_value"], now=now)
+        task.next_reset_at = next_reset_time(
+            fields["reset_frequency"], fields["reset_value"], now=reset_now
+        )
         task.updated_at = now
         db.commit()
         await manager.broadcast("tasks_changed")
@@ -1525,6 +1696,7 @@ async def update_task(
 async def toggle_task(
     request: Request,
     task_id: int,
+    return_to: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1535,15 +1707,25 @@ async def toggle_task(
         task.updated_at = now
         if task.status == "complete":
             task.completed_date = local_today()
-            db.add(TaskHistory(task_id=task.id, completed_by=user.id, completed_at=now))
+            if (task.type or "chore") == "chore":
+                db.add(TaskHistory(task_id=task.id, completed_by=user.id, completed_at=now))
         else:
             task.completed_date = None
+            if (task.type or "chore") == "chore":
+                db.execute(
+                    delete(TaskHistory).where(
+                        TaskHistory.task_id == task.id,
+                        func.date(TaskHistory.completed_at) == local_today().isoformat(),
+                    )
+                )
         db.commit()
         await manager.broadcast("tasks_changed")
     if request.headers.get("hx-request"):
         if request.headers.get("hx-target") in {"chore-list", "#chore-list"}:
             return render_chore_list(request, db, user)
         return render_task_list(request, db, user)
+    if return_to and return_to.startswith("/"):
+        return redirect(return_to)
     return redirect("/app")
 
 
@@ -1602,13 +1784,14 @@ async def manual_chore_reset(
     db: Session = Depends(get_db),
 ):
     now = utcnow()
+    reset_now = datetime.now()
     chores = db.scalars(
         select(Task).where(Task.type == "chore", Task.reset_frequency == "daily")
     ).all()
     for chore in chores:
         chore.status = "incomplete"
         chore.completed_date = None
-        chore.next_reset_at = next_reset_time(chore.reset_frequency, chore.reset_value, now=now)
+        chore.next_reset_at = next_reset_time(chore.reset_frequency, chore.reset_value, now=reset_now)
         chore.updated_at = now
     db.commit()
     await manager.broadcast("tasks_changed")
@@ -1621,6 +1804,7 @@ async def manual_chore_reset(
 async def delete_task(
     request: Request,
     task_id: int,
+    return_to: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1633,6 +1817,8 @@ async def delete_task(
         if request.headers.get("hx-target") in {"chore-list", "#chore-list"}:
             return render_chore_list(request, db, user)
         return render_task_list(request, db, user)
+    if return_to and return_to.startswith("/"):
+        return redirect(return_to)
     return redirect("/app")
 
 

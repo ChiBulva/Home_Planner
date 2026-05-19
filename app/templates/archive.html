@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <div class="section-title archive-head">
+    <h1>Archive</h1>
+    <span class="archive-count">{{ items | length }} items</span>
+  </div>
+
+  <div class="archive-tabs">
+    <a class="archive-tab {% if tab == 'all' %}active{% endif %}" href="/archive?tab=all&q={{ q }}">All</a>
+    <a class="archive-tab {% if tab == 'tasks' %}active{% endif %}" href="/archive?tab=tasks&q={{ q }}">Tasks</a>
+    <a class="archive-tab {% if tab == 'projects' %}active{% endif %}" href="/archive?tab=projects&q={{ q }}">Projects</a>
+  </div>
+
+  <form method="get" action="/archive" class="archive-search">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <input name="q" value="{{ q }}" placeholder="Search completed items, task text, or project names">
+    <button type="submit" class="secondary">Search</button>
+  </form>
+
+  {% if tab == "projects" %}
+    <div class="archive-project-groups">
+      {% for group in project_groups %}
+        <section class="browser-group archive-project-group" style="--project-color: {{ project_color(group.name) }}">
+          <div class="archive-project-head">
+            <div>
+              <h2>{{ group.name }}</h2>
+              <p>{{ group.count }} completed items{% if group.last_completed_at %} · last {{ group.last_completed_at | short_date }}{% endif %}</p>
+            </div>
+            <a class="button-link secondary-link" href="/projects">Open Projects</a>
+          </div>
+          <div class="task-list">
+            {% for task in group.tasks %}
+              <article class="task-card complete archive-card" style="--task-color: {{ task.color }}">
+                <form method="post" action="/projects/tasks/{{ task.id }}/toggle?return_to=/archive?tab={{ tab }}">
+                  <button class="check" title="Mark incomplete">✓</button>
+                </form>
+                <div>
+                  <h3>{{ task.title }}</h3>
+                  <div class="meta">
+                    <span>{{ "No order" if task.project_order == 0 else "Order " ~ task.project_order }}</span>
+                    {% if task.due_at %}<span>Due {{ task.due_at | short_date }}</span>{% endif %}
+                    {% if task.completed_date %}<span>{{ task.completed_date }}</span>{% endif %}
+                  </div>
+                </div>
+                <div class="task-actions">
+                  <a class="button-link secondary-link" href="/tasks/{{ task.id }}/edit">Edit</a>
+                  <form method="post" action="/projects/tasks/{{ task.id }}/delete?return_to=/archive?tab={{ tab }}">
+                    <button class="danger" type="submit">Remove</button>
+                  </form>
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        </section>
+      {% else %}
+        <p class="empty">No completed project items in this view.</p>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="task-browser">
+      <section class="browser-group">
+        <h2>Completed Items</h2>
+        <div class="task-list">
+          {% for task in items %}
+            <article class="task-card complete archive-card" style="--task-color: {{ task.color }}">
+              <form method="post" action="/tasks/{{ task.id }}/toggle?return_to=/archive?tab={{ tab }}">
+                <button class="check" title="Mark incomplete">✓</button>
+              </form>
+              <div>
+                <h3>{{ task.title }}</h3>
+                <div class="meta">
+                  <span>{{ task.type or "task" }}</span>
+                  {% if task.project_name %}<span>{{ task.project_name }}</span>{% endif %}
+                  {% if task.completed_date %}<span>{{ task.completed_date }}</span>{% endif %}
+                </div>
+              </div>
+              <div class="task-actions">
+                <a class="button-link secondary-link" href="/tasks/{{ task.id }}/edit">Edit</a>
+                {% if task.project_name %}
+                  <form method="post" action="/projects/tasks/{{ task.id }}/delete?return_to=/archive?tab={{ tab }}">
+                    <button class="danger" type="submit">Remove</button>
+                  </form>
+                {% else %}
+                  <form method="post" action="/tasks/{{ task.id }}/delete?return_to=/archive?tab={{ tab }}">
+                    <button class="danger" type="submit">Remove</button>
+                  </form>
+                {% endif %}
+              </div>
+            </article>
+          {% else %}
+            <p class="empty">No completed items in this view.</p>
+          {% endfor %}
+        </div>
+      </section>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

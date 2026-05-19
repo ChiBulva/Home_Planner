@@ -49,11 +49,20 @@
         {% endif %}
       </div>
       <div class="dash-tasks chore-grid">
-        {% for task in daily_chores %}
-          <article class="chore-tile {{ task.status or 'incomplete' }} {{ 'planned' if is_future_selected else '' }}" style="--task-color: {{ task.color }}">
+        {% set chore_items = daily_chores_with_state if daily_chores_with_state is defined else [] %}
+        {% if chore_items | length == 0 and daily_chores is defined %}
+          {% set chore_items = [] %}
+          {% for task in daily_chores %}
+            {% set _ = chore_items.append({"task": task, "is_complete": task.status == "complete"}) %}
+          {% endfor %}
+        {% endif %}
+        {% for chore in chore_items %}
+          {% set task = chore.task %}
+          {% set is_done = chore.is_complete %}
+          <article class="chore-tile {{ 'complete' if is_done else 'incomplete' }} {{ 'planned' if is_future_selected else '' }}" style="--task-color: {{ task.color }}">
             {% if can_toggle_day %}
               <form method="post" action="/dashboard/tasks/{{ task.id }}/toggle?date={{ selected_date_value }}" hx-post="/dashboard/tasks/{{ task.id }}/toggle?date={{ selected_date_value }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
-                <button class="check" title="Toggle chore">{{ "✓" if task.status == "complete" else "" }}</button>
+                <button class="check" title="Toggle chore">{{ "✓" if is_done else "" }}</button>
               </form>
             {% else %}
               <span class="check static-check" title="Future day (view only)"></span>
@@ -313,10 +322,10 @@
           <article class="completed-card" style="--task-color: {{ task.color }}; --priority-color: {{ priority_color(task.priority) }}">
             {% if can_toggle_day %}
               <form method="post" action="/dashboard/tasks/{{ task.id }}/toggle?date={{ selected_date_value }}" hx-post="/dashboard/tasks/{{ task.id }}/toggle?date={{ selected_date_value }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
-                <button class="check" title="Move back to working">{{ "✓" if task.status == "complete" else "" }}</button>
+                <button class="check" title="Move back to working">✓</button>
               </form>
             {% else %}
-              <span class="check static-check" title="Future day (view only)">{{ "✓" if task.status == "complete" else "" }}</span>
+              <span class="check static-check" title="Future day (view only)">✓</span>
             {% endif %}
             <div>
               <strong>{{ task.title }}</strong>
