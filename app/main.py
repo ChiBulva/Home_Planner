@@ -158,8 +158,33 @@ def render_task_list(request: Request, db: Session, user: User) -> HTMLResponse:
 
 def render_chore_list(request: Request, db: Session, user: User) -> HTMLResponse:
     tasks = task_query(db, user)
-    groups = task_browser_groups(tasks)
-    return render(request, "_chores.html", {"user": user, "daily_chores": groups["daily_chores"]})
+    chores = [task for task in tasks if (task.type or "chore") == "chore"]
+    daily_chores = [task for task in chores if (task.reset_frequency or "daily") == "daily"]
+    weekday_buckets: dict[int, list[Task]] = {idx: [] for idx in range(7)}
+    for task in chores:
+        if (task.reset_frequency or "daily") != "weekdays":
+            continue
+        days = sorted(chore_weekdays(task.reset_value))
+        if not days:
+            days = list(range(7))
+        for day in days:
+            if day in weekday_buckets:
+                weekday_buckets[day].append(task)
+    weekday_sections = [
+        {"label": label, "index": idx, "chores": weekday_buckets[idx]}
+        for idx, label in enumerate(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])
+    ]
+    weekday_total = sum(len(section["chores"]) for section in weekday_sections)
+    return render(
+        request,
+        "_chores.html",
+        {
+            "user": user,
+            "daily_chores": daily_chores,
+            "weekday_sections": weekday_sections,
+            "weekday_total": weekday_total,
+        },
+    )
 
 
 def project_names(db: Session) -> list[str]:
@@ -196,6 +221,18 @@ def save_active_task_ids_for_date(db: Session, selected_date: date, task_ids: se
     set_setting(db, f"active_tasks:{selected_date.isoformat()}", "\n".join(str(i) for i in sorted(task_ids)))
 
 
+def inactive_project_task_ids_for_date(db: Session, selected_date: date) -> set[int]:
+    return parse_active_task_ids(get_setting(db, f"inactive_project_tasks:{selected_date.isoformat()}"))
+
+
+def save_inactive_project_task_ids_for_date(db: Session, selected_date: date, task_ids: set[int]) -> None:
+    set_setting(
+        db,
+        f"inactive_project_tasks:{selected_date.isoformat()}",
+        "\n".join(str(i) for i in sorted(task_ids)),
+    )
+
+
 def project_color(db: Session, name: str) -> str:
     return get_setting(db, f"project_color:{name}", "#147d74")
 
@@ -205,6 +242,14 @@ def valid_color(value: str, default: str = "#147d74") -> str:
     if len(value) == 7 and value.startswith("#"):
         return value
     return default
+
+
+def priority_color(priority: int | None) -> str:
+    if priority == 3:
+        return "#ad3434"  # High
+    if priority == 1:
+        return "#f9c74f"  # Low
+    return "#f08c2e"  # Normal
 
 
 def project_quote(value: str) -> str:
@@ -250,9 +295,33 @@ def dashboard_groups(
     selected_date: date,
     active_projects: set[str],
     active_task_ids: set[int],
+    inactive_project_task_ids: set[int] | None = None,
+    show_up_next_completed: bool = False,
+    show_due_next_completed: bool = False,
 ) -> dict:
-    open_tasks = [task for task in tasks if (task.status or "incomplete") != "complete"]
-    done_tasks = [task for task in tasks if task.status == "complete"]
+    def is_complete(task: Task) -> bool:
+        return (task.status or "").strip().lower() == "complete"
+
+    inactive_project_task_ids = inactive_project_task_ids or set()
+    open_tasks = [task for task in tasks if not is_complete(task)]
+    done_tasks = [task for task in tasks if is_complete(task)]
+    project_has_incomplete: dict[str, bool] = {}
+    project_progress: dict[str, dict[str, int]] = {}
+    for task in tasks:
+        if not task.project_name or (task.type or "chore") == "chore":
+            continue
+        if task.project_name not in project_has_incomplete:
+            project_has_incomplete[task.project_name] = False
+        if task.project_name not in project_progress:
+            project_progress[task.project_name] = {"complete": 0, "total": 0, "percent": 0}
+        project_progress[task.project_name]["total"] += 1
+        if is_complete(task):
+            project_progress[task.project_name]["complete"] += 1
+        else:
+            project_has_incomplete[task.project_name] = True
+    for name, progress in project_progress.items():
+        total = progress["total"]
+        progress["percent"] = round((progress["complete"] / total) * 100) if total else 0
     daily_chores = [
         task
         for task in tasks
@@ -264,7 +333,11 @@ def dashboard_groups(
         if (task.type or "chore") != "chore"
         and (
             (task.id in active_task_ids)
-            or (task.project_name and task.project_name in active_projects)
+            or (
+                task.project_name
+                and task.project_name in active_projects
+                and task.id not in inactive_project_task_ids
+            )
             or (task.due_at is not None and task.due_at.date() == selected_date)
         )
     ]
@@ -298,37 +371,95 @@ def dashboard_groups(
     three_day_start = selected_date + timedelta(days=1)
     three_day_end = selected_date + timedelta(days=3)
     working_ids = {task.id for task in tasks_today}
-    up_next = sorted(
-        [
+    up_next_all = [
+        task
+        for task in tasks
+        if (task.type or "chore") != "chore"
+        and (not task.project_name or project_has_incomplete.get(task.project_name, False))
+        and task.due_at is None
+        and task.id not in working_ids
+    ]
+    due_next_all = [
+        task
+        for task in tasks
+        if (task.type or "chore") != "chore"
+        and (not task.project_name or project_has_incomplete.get(task.project_name, False))
+        and task.due_at is not None
+        and three_day_start <= task.due_at.date() <= three_day_end
+        and task.id not in working_ids
+    ]
+
+    def section_groups(
+        section_all_tasks: list[Task],
+        show_completed: bool,
+        due_sort: bool = False,
+    ) -> tuple[list[Task], list[dict], dict, list[Task]]:
+        # Completed standalone tasks stay out of these dashboard sections.
+        standalone = [
             task
-            for task in open_tasks
-            if (task.type or "chore") != "chore"
-            and task.due_at is None
-            and task.id not in working_ids
-        ],
-        key=lambda task: (task.priority * -1, task.created_at),
+            for task in section_all_tasks
+            if not task.project_name and not is_complete(task)
+        ]
+        standalone = sorted(
+            standalone,
+            key=(lambda task: (task.due_at, task.created_at)) if due_sort else (lambda task: ((task.priority or 2) * -1, task.created_at)),
+        )
+        grouped = []
+        visible = list(standalone)
+        for name in sorted({task.project_name for task in section_all_tasks if task.project_name}):
+            all_items = sorted([task for task in section_all_tasks if task.project_name == name], key=project_sort_key)
+            shown_items = all_items if show_completed else [task for task in all_items if not is_complete(task)]
+            if not shown_items:
+                continue
+            progress = project_progress.get(name, {"complete": 0, "total": 0, "percent": 0})
+            grouped.append(
+                {
+                    "name": name,
+                    "tasks": shown_items,
+                    "complete": progress["complete"],
+                    "total": progress["total"],
+                    "percent": progress["percent"],
+                }
+            )
+            visible.extend(shown_items)
+        grouped.sort(key=lambda group: (-group["percent"], group["total"] - group["complete"], group["name"].lower()))
+        complete_total = len([task for task in section_all_tasks if is_complete(task)])
+        total = len(section_all_tasks)
+        progress = {
+            "complete": complete_total,
+            "total": total,
+            "percent": round((complete_total / total) * 100) if total else 0,
+        }
+        return standalone, grouped, progress, visible
+
+    up_next_standalone, up_next_project_groups, up_next_progress, up_next = section_groups(
+        up_next_all, show_up_next_completed, due_sort=False
     )
-    due_next_three_days = sorted(
+    due_next_standalone, due_next_project_groups, due_next_progress, due_next_three_days = section_groups(
+        due_next_all, show_due_next_completed, due_sort=True
+    )
+    long_term_projects = sorted(
         [
             task
             for task in open_tasks
             if (task.type or "chore") != "chore"
+            and task.project_name
             and task.due_at is not None
-            and three_day_start <= task.due_at.date() <= three_day_end
+            and task.due_at.date() > three_day_end
             and task.id not in working_ids
         ],
-        key=lambda task: task.due_at,
+        key=lambda task: (task.due_at, project_sort_key(task)),
     )
-    up_next_standalone = [task for task in up_next if not task.project_name]
-    due_next_standalone = [task for task in due_next_three_days if not task.project_name]
-    up_next_project_groups = []
-    for name in sorted({task.project_name for task in up_next if task.project_name}):
-        items = sorted([task for task in up_next if task.project_name == name], key=project_sort_key)
-        up_next_project_groups.append({"name": name, "tasks": items})
-    due_next_project_groups = []
-    for name in sorted({task.project_name for task in due_next_three_days if task.project_name}):
-        items = sorted([task for task in due_next_three_days if task.project_name == name], key=project_sort_key)
-        due_next_project_groups.append({"name": name, "tasks": items})
+    long_term_project_groups = []
+    for name in sorted({task.project_name for task in long_term_projects if task.project_name}):
+        items = sorted([task for task in long_term_projects if task.project_name == name], key=project_sort_key)
+        long_term_project_groups.append(
+            {
+                "name": name,
+                "tasks": items,
+                "next_due": min((task.due_at for task in items if task.due_at), default=None),
+            }
+        )
     naturally_today_ids = {
         task.id
         for task in open_tasks
@@ -341,6 +472,16 @@ def dashboard_groups(
     manual_active_task_ids = {
         task.id for task in tasks_today if task.id in active_task_ids and task.id not in naturally_today_ids
     }
+    removable_working_task_ids = set(manual_active_task_ids)
+    for task in tasks_today:
+        due_today = task.due_at is not None and task.due_at.date() == selected_date
+        if (
+            task.project_name
+            and task.project_name in active_projects
+            and task.id not in active_task_ids
+            and not due_today
+        ):
+            removable_working_task_ids.add(task.id)
     return {
         "open_tasks": open_tasks,
         "done_tasks": done_tasks,
@@ -353,12 +494,19 @@ def dashboard_groups(
         "due_next_three_days": due_next_three_days,
         "up_next_standalone": up_next_standalone,
         "up_next_project_groups": up_next_project_groups,
+        "up_next_progress": up_next_progress,
+        "show_up_next_completed": show_up_next_completed,
         "due_next_standalone": due_next_standalone,
         "due_next_project_groups": due_next_project_groups,
+        "due_next_progress": due_next_progress,
+        "show_due_next_completed": show_due_next_completed,
+        "long_term_project_groups": long_term_project_groups,
         "projects": projects,
         "active_projects": active_projects,
         "active_task_ids": active_task_ids,
         "manual_active_task_ids": manual_active_task_ids,
+        "inactive_project_task_ids": inactive_project_task_ids,
+        "removable_working_task_ids": removable_working_task_ids,
     }
 
 
@@ -451,6 +599,17 @@ def date_window_with_weather(selected: date, weather: dict) -> list[dict]:
     daily = weather.get("daily", {}) if weather.get("ok") else {}
     for day in days:
         day["weather"] = daily.get(day["value"])
+        high = day["weather"].get("high") if day["weather"] else None
+        if high is None:
+            day["temp_class"] = "temp-mild"
+        elif high >= 90:
+            day["temp_class"] = "temp-hot"
+        elif high >= 75:
+            day["temp_class"] = "temp-warm"
+        elif high >= 55:
+            day["temp_class"] = "temp-mild"
+        else:
+            day["temp_class"] = "temp-cool"
     return days
 
 
@@ -494,7 +653,18 @@ def render_dashboard_panel(request: Request, db: Session, user: User, selected: 
     tasks = task_query(db, user)
     active_projects = active_project_names(db)
     active_task_ids = active_task_ids_for_date(db, selected)
-    groups = dashboard_groups(tasks, selected, active_projects, active_task_ids)
+    show_up_next_completed = True
+    show_due_next_completed = True
+    section_state_query = ""
+    groups = dashboard_groups(
+        tasks,
+        selected,
+        active_projects,
+        active_task_ids,
+        inactive_project_task_ids=inactive_project_task_ids_for_date(db, selected),
+        show_up_next_completed=show_up_next_completed,
+        show_due_next_completed=show_due_next_completed,
+    )
     completed_today = [
         {"completed_at": task.updated_at, "task": task}
         for task in sorted(
@@ -505,6 +675,28 @@ def render_dashboard_panel(request: Request, db: Session, user: User, selected: 
     ]
     weather = weather_context(db)
     today = local_today()
+    day_metrics = {}
+    for day in date_window(selected):
+        day_value = day["date"]
+        metric_groups = dashboard_groups(
+            tasks,
+            day_value,
+            active_projects,
+            active_task_ids_for_date(db, day_value),
+            inactive_project_task_ids=inactive_project_task_ids_for_date(db, day_value),
+            show_up_next_completed=True,
+            show_due_next_completed=True,
+        )
+        project_count = len({t.project_name for t in metric_groups["tasks_today"] if t.project_name})
+        day_metrics[day["value"]] = {
+            "chores": len(metric_groups["daily_chores_open"]),
+            "working": len(metric_groups["tasks_today"]),
+            "projects": project_count,
+        }
+    date_days = date_window_with_weather(selected, weather)
+    for day in date_days:
+        metric = day_metrics.get(day["value"], {"chores": 0, "working": 0, "projects": 0})
+        day["metrics"] = metric
     return render(
         request,
         "_dashboard.html",
@@ -517,9 +709,14 @@ def render_dashboard_panel(request: Request, db: Session, user: User, selected: 
             "previous_date": (selected - timedelta(days=1)).isoformat(),
             "next_date": (selected + timedelta(days=1)).isoformat(),
             "is_today": selected == today,
-            "date_window": date_window_with_weather(selected, weather),
+            "is_future_selected": selected > today,
+            "can_toggle_day": selected <= today,
+            "date_window": date_days,
             "project_color": lambda name: project_color(db, name),
+            "project_quote": project_quote,
+            "priority_color": priority_color,
             "completed_today": completed_today,
+            "section_state_query": section_state_query,
             **groups,
         },
     )
@@ -981,9 +1178,11 @@ async def dashboard_toggle_task(
     db: Session = Depends(get_db),
 ):
     task = db.get(Task, task_id)
+    selected = parse_dashboard_date(date)
+    if selected > local_today():
+        return render_dashboard_panel(request, db, user, selected)
     if task:
         now = utcnow()
-        selected = parse_dashboard_date(date)
         task.status = "incomplete" if task.status == "complete" else "complete"
         task.updated_at = now
         if task.status == "complete":
@@ -993,7 +1192,6 @@ async def dashboard_toggle_task(
             task.completed_date = None
         db.commit()
         await manager.broadcast("tasks_changed")
-    selected = parse_dashboard_date(date)
     return render_dashboard_panel(request, db, user, selected)
 
 
@@ -1007,15 +1205,80 @@ async def dashboard_toggle_task_active_today(
 ):
     task = db.get(Task, task_id)
     selected = parse_dashboard_date(date)
+    if selected > local_today():
+        return render_dashboard_panel(request, db, user, selected)
     if task and (task.type or "chore") != "chore":
         active_task_ids = active_task_ids_for_date(db, selected)
+        inactive_project_task_ids = inactive_project_task_ids_for_date(db, selected)
+        active_projects = active_project_names(db)
+        due_today = task.due_at is not None and task.due_at.date() == selected
+        from_active_project = bool(task.project_name and task.project_name in active_projects)
+
         if task_id in active_task_ids:
             active_task_ids.remove(task_id)
+        elif from_active_project and not due_today:
+            if task_id in inactive_project_task_ids:
+                inactive_project_task_ids.remove(task_id)
+            else:
+                inactive_project_task_ids.add(task_id)
         else:
             active_task_ids.add(task_id)
+
+        if task.project_name and task.project_name in active_projects:
+            open_project_tasks = db.scalars(
+                select(Task).where(
+                    Task.project_name == task.project_name,
+                    Task.status != "complete",
+                )
+            ).all()
+            any_active_for_project = any(
+                (
+                    project_task.id in active_task_ids
+                    or (
+                        project_task.due_at is not None
+                        and project_task.due_at.date() == selected
+                    )
+                    or project_task.id not in inactive_project_task_ids
+                )
+                for project_task in open_project_tasks
+                if (project_task.type or "chore") != "chore"
+            )
+            if not any_active_for_project:
+                active_projects.remove(task.project_name)
+                save_active_project_names(db, active_projects)
+
         save_active_task_ids_for_date(db, selected, active_task_ids)
+        save_inactive_project_task_ids_for_date(db, selected, inactive_project_task_ids)
         db.commit()
         await manager.broadcast("tasks_changed")
+    return render_dashboard_panel(request, db, user, selected)
+
+
+@app.post("/dashboard/projects/{project_name}/activate", response_class=HTMLResponse)
+async def dashboard_toggle_project_active(
+    request: Request,
+    project_name: str,
+    date: str | None = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    selected = parse_dashboard_date(date)
+    if selected > local_today():
+        return render_dashboard_panel(request, db, user, selected)
+    active_projects = active_project_names(db)
+    inactive_project_task_ids = inactive_project_task_ids_for_date(db, selected)
+    if project_name in active_projects:
+        active_projects.remove(project_name)
+        project_task_ids = set(
+            db.scalars(select(Task.id).where(Task.project_name == project_name)).all()
+        )
+        inactive_project_task_ids -= project_task_ids
+    else:
+        active_projects.add(project_name)
+    save_active_project_names(db, active_projects)
+    save_inactive_project_task_ids_for_date(db, selected, inactive_project_task_ids)
+    db.commit()
+    await manager.broadcast("tasks_changed")
     return render_dashboard_panel(request, db, user, selected)
 
 
@@ -1026,6 +1289,8 @@ async def dashboard_chore_reset(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    if parse_dashboard_date(date) > local_today():
+        return render_dashboard_panel(request, db, user, parse_dashboard_date(date))
     now = utcnow()
     chores = db.scalars(
         select(Task).where(Task.type == "chore", Task.reset_frequency == "daily")

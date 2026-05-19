@@ -11,7 +11,7 @@
         <div class="project-head">
           <div>
             <strong>{{ project.name }}</strong>
-            <span>{{ project.complete }}/{{ project.total }}</span>
+            <span>{{ project.complete }}/{{ project.total }} {{ project.percent }}% Task % complete</span>
           </div>
           <div class="project-head-actions">
             <form method="post" action="/projects/{{ project_quote(project.name) }}/color" class="color-form">

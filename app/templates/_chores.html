@@ -1,6 +1,7 @@
-<div id="chore-list" class="task-browser">
+<div id="chore-list" class="task-browser chore-board g-fit">
   {% set list_target = '#chore-list' %}
-  <section class="browser-group">
+
+  <section class="browser-group chores-top g-overflow-auto">
     <h2>Daily Chores</h2>
     <div class="task-list">
       {% for task in daily_chores %}
@@ -10,4 +11,28 @@
       {% endfor %}
     </div>
   </section>
+
+  <section class="chores-bottom">
+    {% for section in weekday_sections %}
+      <section class="browser-group chores-day-col g-overflow-auto">
+        <h2>{{ section.label }}</h2>
+        <div class="task-list">
+          {% for task in section.chores %}
+            {% include "_task_card.html" %}
+          {% else %}
+            <p class="empty">No chores.</p>
+          {% endfor %}
+        </div>
+      </section>
+    {% endfor %}
+  </section>
+
+  {% if daily_chores | length == 0 and weekday_total == 0 %}
+    <section class="browser-group">
+      <h2>All Chores</h2>
+      <div class="task-list">
+        <p class="empty">No chores yet.</p>
+      </div>
+    </section>
+  {% endif %}
 </div>

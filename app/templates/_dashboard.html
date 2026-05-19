@@ -8,10 +8,11 @@
           <span>{{ day.label }}</span>
           <span>{{ day.date | short_date }}</span>
           {% if day.weather %}
-            <small>{{ day.weather.high }}&deg;/{{ day.weather.low }}&deg;{% if day.weather.rain is not none %} · {{ day.weather.rain }}%{% endif %}</small>
+            <small class="{{ day.temp_class }}">{{ day.weather.high }}&deg;/{{ day.weather.low }}&deg;{% if day.weather.rain is not none %} · {{ day.weather.rain }}%{% endif %}</small>
           {% else %}
             <small>--</small>
           {% endif %}
+          <small class="day-metrics">{{ day.metrics.chores }} chores · {{ day.metrics.working }} working · {{ day.metrics.projects }} projects</small>
         </a>
       {% endfor %}
     </div>
@@ -41,16 +42,22 @@
     <section class="dash-section">
       <div class="dash-heading">
         <h2>Daily Chores</h2>
-        <form method="post" action="/dashboard/chores/reset?date={{ selected_date_value }}" hx-post="/dashboard/chores/reset?date={{ selected_date_value }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
-          <button type="submit" class="secondary">Reset chores</button>
-        </form>
+        {% if can_toggle_day %}
+          <form method="post" action="/dashboard/chores/reset?date={{ selected_date_value }}" hx-post="/dashboard/chores/reset?date={{ selected_date_value }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
+            <button type="submit" class="secondary">Reset chores</button>
+          </form>
+        {% endif %}
       </div>
       <div class="dash-tasks chore-grid">
         {% for task in daily_chores %}
-          <article class="chore-tile {{ task.status or 'incomplete' }}" style="--task-color: {{ task.color }}">
-            <form method="post" action="/dashboard/tasks/{{ task.id }}/toggle?date={{ selected_date_value }}" hx-post="/dashboard/tasks/{{ task.id }}/toggle?date={{ selected_date_value }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
-              <button class="check" title="Toggle chore">{{ "✓" if task.status == "complete" else "" }}</button>
-            </form>
+          <article class="chore-tile {{ task.status or 'incomplete' }} {{ 'planned' if is_future_selected else '' }}" style="--task-color: {{ task.color }}">
+            {% if can_toggle_day %}
+              <form method="post" action="/dashboard/tasks/{{ task.id }}/toggle?date={{ selected_date_value }}" hx-post="/dashboard/tasks/{{ task.id }}/toggle?date={{ selected_date_value }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
+                <button class="check" title="Toggle chore">{{ "✓" if task.status == "complete" else "" }}</button>
+              </form>
+            {% else %}
+              <span class="check static-check" title="Future day (view only)"></span>
+            {% endif %}
             <div>
               <strong>{{ task.title }}</strong>
               <span>{{ "shared" if not task.assignee else task.assignee.username }}</span>
@@ -69,27 +76,49 @@
         </div>
         <div class="dash-tasks compact">
           {% for task in up_next_standalone %}
-            <article class="today-task" style="--task-color: {{ task.color }}">
-              <form method="post" action="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}" hx-post="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
-                <button class="check arrow-toggle activate" title="Move to working today">&larr;</button>
-              </form>
+            <article class="today-task {{ 'completed-static' if task.status == 'complete' else '' }}" style="--task-color: {{ task.color }}; --priority-color: {{ priority_color(task.priority) }}">
+              {% if task.status == "complete" %}
+                <span class="check static-check" title="Completed task">✓</span>
+              {% elif not can_toggle_day %}
+                <span class="check static-check" title="Future day (view only)">&larr;</span>
+              {% else %}
+                <form method="post" action="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}{{ section_state_query }}" hx-post="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}{{ section_state_query }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
+                  <button class="check arrow-toggle activate" title="Move to working today">&larr;</button>
+                </form>
+              {% endif %}
               <div>
                 <strong>{{ task.title }}</strong>
-                <span>{{ "shared" if not task.assignee else task.assignee.username }}</span>
+                <span>{{ "shared" if not task.assignee else task.assignee.username }}{% if task.status == "complete" %} · completed{% endif %}</span>
               </div>
             </article>
           {% endfor %}
           {% for project in up_next_project_groups %}
             <section class="dashboard-project-group" style="--project-color: {{ project_color(project.name) }}">
-              <h3>{{ project.name }}</h3>
-              {% for task in project.tasks %}
-                <article class="today-task" style="--task-color: {{ task.color }}">
-                  <form method="post" action="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}" hx-post="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
-                    <button class="check arrow-toggle activate" title="Move to working today">&larr;</button>
+              <h3>
+                {% if can_toggle_day %}
+                  <form method="post" action="/dashboard/projects/{{ project_quote(project.name) }}/activate?date={{ selected_date_value }}{{ section_state_query }}" hx-post="/dashboard/projects/{{ project_quote(project.name) }}/activate?date={{ selected_date_value }}{{ section_state_query }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
+                    <button class="check arrow-toggle activate" title="Toggle project active">&larr;</button>
                   </form>
+                {% else %}
+                  <span class="check static-check" title="Future day (view only)">&larr;</span>
+                {% endif %}
+                {{ project.name }}
+              </h3>
+              <p class="project-progress">{{ project.complete }}/{{ project.total }} {{ project.percent }}% Task % complete</p>
+              {% for task in project.tasks %}
+                <article class="today-task {{ 'completed-static' if task.status == 'complete' else '' }}" style="--task-color: {{ task.color }}; --priority-color: {{ priority_color(task.priority) }}">
+                  {% if task.status == "complete" %}
+                    <span class="check static-check" title="Completed task">✓</span>
+                  {% elif not can_toggle_day %}
+                    <span class="check static-check" title="Future day (view only)">&larr;</span>
+                  {% else %}
+                    <form method="post" action="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}{{ section_state_query }}" hx-post="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}{{ section_state_query }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
+                      <button class="check arrow-toggle activate" title="Move to working today">&larr;</button>
+                    </form>
+                  {% endif %}
                   <div>
                     <strong>{% if task.project_order > 0 %}{{ task.project_order }}. {% endif %}{{ task.title }}</strong>
-                    <span>{{ "shared" if not task.assignee else task.assignee.username }}</span>
+                    <span>{{ "shared" if not task.assignee else task.assignee.username }}{% if task.status == "complete" %} · completed{% endif %}</span>
                   </div>
                 </article>
               {% endfor %}
@@ -108,32 +137,83 @@
         </div>
         <div class="dash-tasks compact">
           {% for task in due_next_standalone %}
-            <article class="today-task" style="--task-color: {{ task.color }}">
-              <form method="post" action="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}" hx-post="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
-                <button class="check arrow-toggle activate" title="Move to working today">&larr;</button>
-              </form>
+            <article class="today-task {{ 'completed-static' if task.status == 'complete' else '' }}" style="--task-color: {{ task.color }}; --priority-color: {{ priority_color(task.priority) }}">
+              {% if task.status == "complete" %}
+                <span class="check static-check" title="Completed task">✓</span>
+              {% elif not can_toggle_day %}
+                <span class="check static-check" title="Future day (view only)">&larr;</span>
+              {% else %}
+                <form method="post" action="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}{{ section_state_query }}" hx-post="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}{{ section_state_query }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
+                  <button class="check arrow-toggle activate" title="Move to working today">&larr;</button>
+                </form>
+              {% endif %}
               <div>
                 <strong>{{ task.title }}</strong>
-                <span>{{ task.due_at | short_date }}</span>
+                <span>{{ task.due_at | short_date }}{% if task.status == "complete" %} · completed{% endif %}</span>
               </div>
             </article>
           {% endfor %}
           {% for project in due_next_project_groups %}
             <section class="dashboard-project-group" style="--project-color: {{ project_color(project.name) }}">
-              <h3>{{ project.name }}</h3>
-              {% for task in project.tasks %}
-                <article class="today-task" style="--task-color: {{ task.color }}">
-                  <form method="post" action="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}" hx-post="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
-                    <button class="check arrow-toggle activate" title="Move to working today">&larr;</button>
+              <h3>
+                {% if can_toggle_day %}
+                  <form method="post" action="/dashboard/projects/{{ project_quote(project.name) }}/activate?date={{ selected_date_value }}{{ section_state_query }}" hx-post="/dashboard/projects/{{ project_quote(project.name) }}/activate?date={{ selected_date_value }}{{ section_state_query }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
+                    <button class="check arrow-toggle activate" title="Toggle project active">&larr;</button>
                   </form>
+                {% else %}
+                  <span class="check static-check" title="Future day (view only)">&larr;</span>
+                {% endif %}
+                {{ project.name }}
+              </h3>
+              <p class="project-progress">{{ project.complete }}/{{ project.total }} {{ project.percent }}% Task % complete</p>
+              {% for task in project.tasks %}
+                <article class="today-task {{ 'completed-static' if task.status == 'complete' else '' }}" style="--task-color: {{ task.color }}; --priority-color: {{ priority_color(task.priority) }}">
+                  {% if task.status == "complete" %}
+                    <span class="check static-check" title="Completed task">✓</span>
+                  {% elif not can_toggle_day %}
+                    <span class="check static-check" title="Future day (view only)">&larr;</span>
+                  {% else %}
+                    <form method="post" action="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}{{ section_state_query }}" hx-post="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}{{ section_state_query }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
+                      <button class="check arrow-toggle activate" title="Move to working today">&larr;</button>
+                    </form>
+                  {% endif %}
                   <div>
                     <strong>{% if task.project_order > 0 %}{{ task.project_order }}. {% endif %}{{ task.title }}</strong>
-                    <span>{{ task.due_at | short_date }}</span>
+                    <span>{{ task.due_at | short_date }}{% if task.status == "complete" %} · completed{% endif %}</span>
                   </div>
                 </article>
               {% endfor %}
             </section>
           {% endfor %}
+          {% if long_term_project_groups | length > 0 %}
+            <section class="dashboard-subsection">
+              <div class="dash-heading">
+                <h3>Long Term Projects</h3>
+                <span>{{ long_term_project_groups | length }} projects</span>
+              </div>
+              {% for project in long_term_project_groups %}
+                <section class="dashboard-project-group" style="--project-color: {{ project_color(project.name) }}">
+                  <h3>{{ project.name }}</h3>
+                  <p class="project-progress">Next due: {{ project.next_due | short_date if project.next_due else "No date" }}</p>
+                  {% for task in project.tasks %}
+                    <article class="today-task" style="--task-color: {{ task.color }}; --priority-color: {{ priority_color(task.priority) }}">
+                      {% if can_toggle_day %}
+                        <form method="post" action="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}{{ section_state_query }}" hx-post="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}{{ section_state_query }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
+                          <button class="check arrow-toggle activate" title="Move to working today">&larr;</button>
+                        </form>
+                      {% else %}
+                        <span class="check static-check" title="Future day (view only)">&larr;</span>
+                      {% endif %}
+                      <div>
+                        <strong>{% if task.project_order > 0 %}{{ task.project_order }}. {% endif %}{{ task.title }}</strong>
+                        <span>{{ task.due_at | short_date }} · {{ project.name }}</span>
+                      </div>
+                    </article>
+                  {% endfor %}
+                </section>
+              {% endfor %}
+            </section>
+          {% endif %}
           {% if due_next_standalone | length == 0 and due_next_project_groups | length == 0 %}
             <p class="empty">Nothing due in the next 3 days.</p>
           {% endif %}
@@ -150,10 +230,14 @@
       </div>
       <div class="dash-tasks prominent">
         {% for task in standalone_today %}
-          <article class="today-task" style="--task-color: {{ task.color }}">
-            <form method="post" action="/dashboard/tasks/{{ task.id }}/toggle?date={{ selected_date_value }}" hx-post="/dashboard/tasks/{{ task.id }}/toggle?date={{ selected_date_value }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
-              <button class="check" title="Complete task"></button>
-            </form>
+          <article class="today-task" style="--task-color: {{ task.color }}; --priority-color: {{ priority_color(task.priority) }}">
+            {% if can_toggle_day %}
+              <form method="post" action="/dashboard/tasks/{{ task.id }}/toggle?date={{ selected_date_value }}" hx-post="/dashboard/tasks/{{ task.id }}/toggle?date={{ selected_date_value }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
+                <button class="check" title="Complete task"></button>
+              </form>
+            {% else %}
+              <span class="check static-check" title="Future day (view only)"></span>
+            {% endif %}
             <div>
               <strong>{{ task.title }}</strong>
               <span>
@@ -162,17 +246,19 @@
                 {% if task.due_at %} &middot; {{ task.due_at | short_date }}{% endif %}
               </span>
             </div>
-            <details class="push-control">
-              <summary>Push to...</summary>
-              <form method="post" action="/tasks/{{ task.id }}/schedule?date={{ selected_date_value }}">
-                <input name="due_at" type="datetime-local" required>
-                <button type="submit">Move</button>
-              </form>
-            </details>
-            {% if task.id in manual_active_task_ids %}
-              <form method="post" action="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}" hx-post="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
-                <button class="check arrow-toggle deactivate" title="Remove from working today">&rarr;</button>
-              </form>
+            {% if can_toggle_day %}
+              <details class="push-control">
+                <summary>Push to...</summary>
+                <form method="post" action="/tasks/{{ task.id }}/schedule?date={{ selected_date_value }}">
+                  <input name="due_at" type="datetime-local" required>
+                  <button type="submit">Move</button>
+                </form>
+              </details>
+              {% if task.id in removable_working_task_ids %}
+                <form method="post" action="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}" hx-post="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
+                  <button class="check arrow-toggle deactivate" title="Remove from working today">&rarr;</button>
+                </form>
+              {% endif %}
             {% endif %}
           </article>
         {% endfor %}
@@ -180,25 +266,31 @@
           <section class="dashboard-project-group" style="--project-color: {{ project_color(project.name) }}">
             <h3>{{ project.name }}</h3>
             {% for task in project.tasks %}
-              <article class="today-task" style="--task-color: {{ task.color }}">
-                <form method="post" action="/dashboard/tasks/{{ task.id }}/toggle?date={{ selected_date_value }}" hx-post="/dashboard/tasks/{{ task.id }}/toggle?date={{ selected_date_value }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
-                  <button class="check" title="Complete project task"></button>
-                </form>
+              <article class="today-task" style="--task-color: {{ task.color }}; --priority-color: {{ priority_color(task.priority) }}">
+                {% if can_toggle_day %}
+                  <form method="post" action="/dashboard/tasks/{{ task.id }}/toggle?date={{ selected_date_value }}" hx-post="/dashboard/tasks/{{ task.id }}/toggle?date={{ selected_date_value }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
+                    <button class="check" title="Complete project task"></button>
+                  </form>
+                {% else %}
+                  <span class="check static-check" title="Future day (view only)"></span>
+                {% endif %}
                 <div>
                   <strong>{% if task.project_order > 0 %}{{ task.project_order }}. {% endif %}{{ task.title }}</strong>
                   <span>{% if task.due_at %}{{ task.due_at | short_date }}{% else %}active project{% endif %}</span>
                 </div>
-                <details class="push-control">
-                  <summary>Push to...</summary>
-                  <form method="post" action="/tasks/{{ task.id }}/schedule?date={{ selected_date_value }}">
-                    <input name="due_at" type="datetime-local" required>
-                    <button type="submit">Move</button>
-                  </form>
-                </details>
-                {% if task.id in manual_active_task_ids %}
-                  <form method="post" action="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}" hx-post="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
-                    <button class="check arrow-toggle deactivate" title="Remove from working today">&rarr;</button>
-                  </form>
+                {% if can_toggle_day %}
+                  <details class="push-control">
+                    <summary>Push to...</summary>
+                    <form method="post" action="/tasks/{{ task.id }}/schedule?date={{ selected_date_value }}">
+                      <input name="due_at" type="datetime-local" required>
+                      <button type="submit">Move</button>
+                    </form>
+                  </details>
+                  {% if task.id in removable_working_task_ids %}
+                    <form method="post" action="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}" hx-post="/dashboard/tasks/{{ task.id }}/activate?date={{ selected_date_value }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
+                      <button class="check arrow-toggle deactivate" title="Remove from working today">&rarr;</button>
+                    </form>
+                  {% endif %}
                 {% endif %}
               </article>
             {% endfor %}
@@ -218,10 +310,14 @@
       <div class="completed-strip">
         {% for item in completed_today %}
           {% set task = item.task %}
-          <article class="completed-card" style="--task-color: {{ task.color }}">
-            <form method="post" action="/dashboard/tasks/{{ task.id }}/toggle?date={{ selected_date_value }}" hx-post="/dashboard/tasks/{{ task.id }}/toggle?date={{ selected_date_value }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
-              <button class="check" title="Move back to working">{{ "✓" if task.status == "complete" else "" }}</button>
-            </form>
+          <article class="completed-card" style="--task-color: {{ task.color }}; --priority-color: {{ priority_color(task.priority) }}">
+            {% if can_toggle_day %}
+              <form method="post" action="/dashboard/tasks/{{ task.id }}/toggle?date={{ selected_date_value }}" hx-post="/dashboard/tasks/{{ task.id }}/toggle?date={{ selected_date_value }}" hx-target="#dashboard-panel" hx-swap="innerHTML">
+                <button class="check" title="Move back to working">{{ "✓" if task.status == "complete" else "" }}</button>
+              </form>
+            {% else %}
+              <span class="check static-check" title="Future day (view only)">{{ "✓" if task.status == "complete" else "" }}</span>
+            {% endif %}
             <div>
               <strong>{{ task.title }}</strong>
               <span>{{ item.completed_at.strftime("%H:%M") }}{% if task.project_name %} &middot; {{ task.project_name }}{% endif %}</span>

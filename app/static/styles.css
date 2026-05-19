@@ -227,6 +227,52 @@ h1, h2, p { margin-top: 0; }
   display: grid;
   gap: 1rem;
 }
+.chore-board {
+  height: calc(100dvh - var(--topbar-height) - 9rem);
+  min-height: 520px;
+  grid-template-rows: minmax(0, 7fr) minmax(0, 3fr);
+  gap: 0.5rem;
+}
+.chores-top {
+  min-height: 0;
+}
+.chores-bottom {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+.chores-day-col {
+  min-height: 0;
+}
+.chores-day-col .task-list,
+.chores-top .task-list {
+  min-height: 0;
+  overflow-y: auto;
+}
+.chores-day-col .task-card {
+  grid-template-columns: auto 1fr;
+  gap: 0.35rem;
+  padding: 0.32rem;
+}
+.chores-day-col .task-card h3 {
+  margin: 0;
+  font-size: 0.82rem;
+}
+.chores-day-col .task-card p,
+.chores-day-col .meta span {
+  font-size: 0.68rem;
+}
+.chores-day-col .task-actions {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+.chores-day-col .task-actions .button-link,
+.chores-day-col .task-actions button {
+  font-size: 0.7rem;
+  padding: 0.2rem 0.4rem;
+}
 .browser-group {
   display: grid;
   gap: 0.65rem;
@@ -429,6 +475,24 @@ h1, h2, p { margin-top: 0; }
   font-weight: 800;
   margin-top: 0.2rem;
 }
+.date-pill small.temp-hot {
+  color: #c0392b;
+}
+.date-pill small.temp-warm {
+  color: #d97706;
+}
+.date-pill small.temp-mild {
+  color: #0f766e;
+}
+.date-pill small.temp-cool {
+  color: #2563eb;
+}
+.date-pill small.day-metrics {
+  color: #6b7f92;
+  font-size: 0.66rem;
+  font-weight: 700;
+  margin-top: 0.1rem;
+}
 .weather-menu {
   position: relative;
 }
@@ -629,6 +693,7 @@ h1, h2, p { margin-top: 0; }
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: start;
   border-left: 5px solid var(--task-color, var(--accent));
+  border-right: 4px solid var(--priority-color, transparent);
 }
 .chore-grid {
   display: grid;
@@ -656,6 +721,10 @@ h1, h2, p { margin-top: 0; }
 .chore-tile.complete {
   background: #e8f6ee;
   border-color: #a8d8ba;
+}
+.chore-tile.planned {
+  background: #f5f8fa;
+  border-color: #d5dee6;
 }
 .chore-tile strong {
   display: block;
@@ -704,9 +773,32 @@ h1, h2, p { margin-top: 0; }
   background: #fff;
 }
 .dashboard-project-group h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
   margin: 0;
   font-size: clamp(0.68rem, 0.78vw, 0.82rem);
   color: var(--project-color, var(--accent));
+}
+.dashboard-project-group h3 form {
+  margin: 0;
+}
+.dashboard-project-group .project-progress {
+  margin: 0 0 0.12rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-weight: 700;
+}
+.dash-heading .tiny-toggle {
+  margin-left: auto;
+  font-size: 0.68rem;
+}
+.dash-heading .tiny-toggle label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-weight: 700;
+  color: var(--muted);
 }
 .dashboard-project-group .today-task {
   margin: 0;
@@ -722,6 +814,7 @@ h1, h2, p { margin-top: 0; }
   column-gap: 0.45rem;
   row-gap: 0.1rem;
   min-height: 2.2rem;
+  border-right: 4px solid var(--priority-color, transparent);
 }
 .dash-tasks.compact .check {
   width: 1.38rem;
@@ -741,6 +834,30 @@ h1, h2, p { margin-top: 0; }
 }
 .dash-tasks.compact .today-task > div strong {
   display: block;
+}
+.dash-tasks.compact .today-task.completed-static {
+  background: color-mix(in srgb, #b7f4cc 65%, white);
+  border-color: color-mix(in srgb, #27ae60 45%, var(--line));
+  opacity: 1;
+}
+.dash-tasks.compact .static-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+  border-color: #1f9b57;
+  color: #1f9b57;
+}
+.dashboard-subsection {
+  display: grid;
+  gap: 0.3rem;
+  padding-top: 0.28rem;
+  border-top: 1px dashed var(--line);
+  margin-top: 0.2rem;
+}
+.dashboard-subsection .dash-heading h3 {
+  margin: 0;
+  font-size: 0.82rem;
 }
 .left-bottom-grid .dash-heading {
   align-items: start;
@@ -765,6 +882,7 @@ h1, h2, p { margin-top: 0; }
   align-items: start;
   border: 1px solid var(--line);
   border-left: 4px solid var(--task-color, var(--accent));
+  border-right: 4px solid var(--priority-color, transparent);
   border-radius: 6px;
   background: #fbfcfc;
   padding: 0.25rem 0.3rem;
@@ -1044,5 +1162,17 @@ h1, h2, p { margin-top: 0; }
   .push-control {
     grid-column: 1 / -1;
     justify-self: stretch;
+  }
+  .chore-board {
+    height: auto;
+    min-height: 0;
+    grid-template-rows: auto auto;
+  }
+  .chores-bottom {
+    grid-template-columns: 1fr;
+  }
+  .chores-day-col .task-list,
+  .chores-top .task-list {
+    overflow: visible;
   }
 }
